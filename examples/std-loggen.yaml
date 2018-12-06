@@ -1,0 +1,19 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: std-loggen
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: std-loggen
+    spec:
+      nodeName: kube-node-1
+      containers:
+      - name: std-loggen
+        image: cargo.caicloudprivatetest.com/caicloud/loggen:v0.0.1
+        args:
+        - --log.toStderr=true
+        - --log.interval=1s
+        imagePullPolicy: Always
