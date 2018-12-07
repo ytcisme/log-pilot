@@ -1,0 +1,34 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: file-loggen
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: file-loggen
+        controller.caicloud.io/chart: file-loggen
+      annotations:
+        logging.caicloud.io/logfiles: |-
+          {"files":[{"realPath":"/opt/logs/app/test.log","container":"file-loggen"}]}
+    spec:
+      nodeName: kube-node-1
+      containers:
+      - name: file-loggen
+        image: cargo.caicloudprivatetest.com/caicloud/loggen:v0.0.1
+        args:
+        - --log.file=/opt/logs/app/test.log
+        - --log.interval=1s
+        imagePullPolicy: Always
+        env:
+        #- name: caicloud_log_stdout
+        #  value: "false"
+        #- name: caicloud_log_1
+        #  value: /opt/logs/app/*.log 
+        volumeMounts:
+        - mountPath: /opt/logs
+          name: log
+      volumes:
+      - name: log
+        emptyDir: {}
