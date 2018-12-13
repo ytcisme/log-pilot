@@ -4,6 +4,8 @@ import (
 	"testing"
 	"text/template"
 
+	"github.com/caicloud/log-pilot/pilot/container"
+
 	"github.com/caicloud/log-pilot/pilot/configurer"
 )
 
@@ -34,8 +36,10 @@ func TestRender(t *testing.T) {
 	c := &filebeatConfigurer{
 		tmpl: tmpl,
 	}
-	ev := configurer.ContainerUpdateEvent{
-		ID: "1",
+	ev := configurer.ContainerAddEvent{
+		Container: container.Container{
+			ID: "1",
+		},
 		LogConfigs: []*configurer.LogConfig{
 			&configurer.LogConfig{
 				Name:    "access",

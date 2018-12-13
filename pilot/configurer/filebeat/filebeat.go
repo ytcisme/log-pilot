@@ -13,17 +13,18 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/caicloud/log-pilot/pilot/container"
+
 	"github.com/caicloud/log-pilot/pilot/configurer"
 	"github.com/caicloud/log-pilot/pilot/log"
+
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/go-ucfg"
 )
 
 // logStates contains states in filebeat registry and related to the container
 type logStates struct {
-	// ID is container ID
-	ID     string
-	PodID  string
+	*container.Container
 	states []RegistryState
 	ts     time.Time
 }
@@ -34,7 +35,7 @@ type filebeatConfigurer struct {
 	// Filebeat home path.
 	filebeatHome   string
 	tmpl           *template.Template
-	watchDone      chan bool
+	closeCh        chan bool
 	watchDuration  time.Duration
 	watchContainer map[string]*logStates
 	logger         log.Logger
@@ -59,12 +60,12 @@ func New(baseDir, configTemplateFile, filebeatHome string) (configurer.Configure
 		filebeatHome:   filebeatHome,
 		base:           baseDir,
 		tmpl:           t,
-		watchDone:      make(chan bool),
+		closeCh:        make(chan bool),
 		watchContainer: make(map[string]*logStates, 0),
 		watchDuration:  60 * time.Second,
 	}
 
-	if err := os.MkdirAll(c.getProspectorsDir(), 0644); err != nil {
+	if err := os.MkdirAll(c.getInputsDir(), 0644); err != nil {
 		return nil, err
 	}
 
@@ -102,7 +103,7 @@ type RegistryState struct {
 	FileStateOS FileInode
 }
 
-func (c *filebeatConfigurer) getProspectorsDir() string {
+func (c *filebeatConfigurer) getInputsDir() string {
 	return filepath.Join(c.filebeatHome, "/inputs.d")
 }
 
@@ -110,37 +111,74 @@ func (c *filebeatConfigurer) getRegistryFile() string {
 	return filepath.Join(c.filebeatHome, "data/registry")
 }
 
-func (c *filebeatConfigurer) GetCollectedContainers() (map[string]struct{}, error) {
-	ret := make(map[string]struct{})
-	files, err := ioutil.ReadDir(c.getProspectorsDir())
+// BootstrapCheck get called when we bootstrap. It removes unknown files,
+// update old version config to new version. And return all the input files.
+func (c *filebeatConfigurer) BootstrapCheck() (map[string]*configurer.InputConfigFile, error) {
+	inputConfDir := c.getInputsDir()
+	files, err := ioutil.ReadDir(inputConfDir)
 	if err != nil {
 		return nil, err
 	}
 
+	toRemove := []string{}
+	ret := make(map[string]*configurer.InputConfigFile)
 	for i := range files {
-		if files[i].IsDir() {
+		base := files[i].Name()
+		inputConfig, err := loadInput(base)
+		if err != nil {
+			log.Warnf("unable to load input config %s: %v", base, err)
+			toRemove = append(toRemove, base)
 			continue
 		}
-		if !strings.HasSuffix(files[i].Name(), ".yml") {
+		// Just remove old version for now.
+		if inputConfig.Version != currentInputConfigVersion {
+			log.Infof("old version: %s", base)
+			toRemove = append(toRemove, base)
 			continue
 		}
-		ID := strings.TrimSuffix(files[i].Name(), ".yml")
-		ret[ID] = struct{}{}
+		inputConfig.Path = filepath.Join(inputConfDir, base)
+		ret[inputConfig.ContainerID] = inputConfig
 	}
 
+	for _, base := range toRemove {
+		if err := os.Remove(filepath.Join(inputConfDir, base)); err != nil {
+			return nil, err
+		}
+	}
 	return ret, nil
 }
 
-func (c *filebeatConfigurer) getContainerConfigPath(containerID string) string {
-	confFile := containerID + ".yml"
-	return filepath.Join(c.getProspectorsDir(), confFile)
+// <namespace>_<pod>_<container_name>_<container_id>_<version>.yml
+func loadInput(base string) (*configurer.InputConfigFile, error) {
+	if !strings.HasSuffix(base, ".yml") {
+		return nil, fmt.Errorf("filename does not end with .yml")
+	}
+	name := base[:len(base)-4]
+	items := strings.Split(name, "_")
+	if len(items) != 5 {
+		return nil, fmt.Errorf("invalid filename pattern: %v", name)
+	}
+
+	return &configurer.InputConfigFile{
+		Namespace:   items[0],
+		Pod:         items[1],
+		Container:   items[2],
+		ContainerID: items[3],
+		Version:     items[4],
+	}, nil
+}
+
+func (c *filebeatConfigurer) getContainerConfigPath(con *container.Container) string {
+	base := strings.Join([]string{con.Namespace, con.Pod, con.Name, con.ID, currentInputConfigVersion}, "_")
+	base = base + ".yml"
+	return filepath.Join(c.getInputsDir(), base)
 }
 
 func (c *filebeatConfigurer) watch() error {
 	c.logger.Infof("%s watcher start", c.Name())
 	for {
 		select {
-		case <-c.watchDone:
+		case <-c.closeCh:
 			c.logger.Infof("%s watcher stop", c.Name())
 			return nil
 		case <-time.After(c.watchDuration):
@@ -170,7 +208,7 @@ func (c *filebeatConfigurer) scan() error {
 	c.logger.Debugf("watching containers: %#v", c.watchContainer)
 
 	for container, lst := range c.watchContainer {
-		confPath := c.getContainerConfigPath(container)
+		confPath := c.getContainerConfigPath(lst.Container)
 		if _, err := os.Stat(confPath); err != nil && os.IsNotExist(err) {
 			c.logger.Infof("log config %s.yml has been removed and ignore", container)
 			delete(c.watchContainer, container)
@@ -262,7 +300,7 @@ func (c *filebeatConfigurer) canRemoveConf(container string, registry map[string
 	return true
 }
 
-func (c *filebeatConfigurer) OnUpdate(ev *configurer.ContainerUpdateEvent) error {
+func (c *filebeatConfigurer) OnAdd(ev *configurer.ContainerAddEvent) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -271,19 +309,19 @@ func (c *filebeatConfigurer) OnUpdate(ev *configurer.ContainerUpdateEvent) error
 		return fmt.Errorf("error render config file: %v", err)
 	}
 
-	confPath := c.getContainerConfigPath(ev.ID)
+	confPath := c.getContainerConfigPath(&ev.Container)
 	if err := ioutil.WriteFile(confPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("error write config file: %v", err)
 	}
 
-	c.logger.Info("Configuration updated successfully for container", ev.ID)
+	c.logger.Info("Configuration updated successfully for container", ev.Container.ID)
 	return nil
 }
 
-func (c *filebeatConfigurer) render(ev *configurer.ContainerUpdateEvent) (string, error) {
+func (c *filebeatConfigurer) render(ev *configurer.ContainerAddEvent) (string, error) {
 	var buf bytes.Buffer
 	context := map[string]interface{}{
-		"containerId": ev.ID,
+		"containerId": ev.Container.ID,
 		"configList":  ev.LogConfigs,
 	}
 	if err := c.tmpl.Execute(&buf, context); err != nil {
@@ -323,11 +361,14 @@ func (c *filebeatConfigurer) OnDestroy(ev *configurer.ContainerDestroyEvent) err
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if _, ok := c.watchContainer[ev.ID]; !ok {
-		c.watchContainer[ev.ID] = &logStates{
-			ID:    ev.ID,
-			PodID: ev.PodID,
+	if _, ok := c.watchContainer[ev.Container.ID]; !ok {
+		c.watchContainer[ev.Container.ID] = &logStates{
+			Container: &ev.Container,
 		}
 	}
 	return nil
+}
+
+func (c *filebeatConfigurer) Stop() {
+	close(c.closeCh)
 }

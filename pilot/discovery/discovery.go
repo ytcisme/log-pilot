@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/caicloud/log-pilot/pilot/configurer"
+	"github.com/caicloud/log-pilot/pilot/container"
 	"github.com/caicloud/log-pilot/pilot/kube"
 	"github.com/caicloud/log-pilot/pilot/log"
 
@@ -23,24 +24,22 @@ import (
 // Discovery watchs container start and destory events,
 // and send parsed results to configurer.
 type Discovery interface {
-	Start(ctx context.Context) error
+	Start() error
 	Stop()
 }
 
 // containerInfo saves basic informations for a container
 type containerInfo struct {
-	ID            string
-	PodID         string
-	PodName       string
-	ContainerName string
-	Namespace     string
-	ReleaseMeta   map[string]string
+	container.Container
+	ReleaseMeta map[string]string
 	// Compatible with old interface, which use pod annotation to store
 	// log sources.
 	LegacyLogSources []string
 }
 
 type discovery struct {
+	ctx             context.Context
+	cancel          context.CancelFunc
 	logger          log.Logger
 	configurer      configurer.Configurer
 	client          *client.Client
@@ -79,7 +78,10 @@ func New(baseDir, logPrefix string, configurer configurer.Configurer) (Discovery
 		return nil, fmt.Errorf("error create pod cache: %v", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	return &discovery{
+		ctx:             ctx,
+		cancel:          cancel,
 		logger:          logger,
 		configurer:      configurer,
 		client:          client,
@@ -91,10 +93,10 @@ func New(baseDir, logPrefix string, configurer configurer.Configurer) (Discovery
 }
 
 // Start runs a work loop
-func (d *discovery) Start(ctx context.Context) error {
+func (d *discovery) Start() error {
 	d.logger.Info("Start discovery")
 
-	if err := d.cache.Start(ctx.Done()); err != nil {
+	if err := d.cache.Start(d.ctx.Done()); err != nil {
 		return fmt.Errorf("error start pod cache: %v", err)
 	}
 	d.logger.Info("Cache synced")
@@ -104,34 +106,36 @@ func (d *discovery) Start(ctx context.Context) error {
 	}
 	d.logger.Info("Configurer started")
 
-	if err := d.watch(ctx); err != nil {
-		return err
+	collected, err := d.configurer.BootstrapCheck()
+	if err != nil {
+		return fmt.Errorf("bootstrap check failed: %v", err)
 	}
+	d.logger.Info("Bootstrap check done")
 
-	return nil
-}
-
-func (d *discovery) watch(ctx context.Context) error {
 	startTs := time.Now()
 	if err := d.processAllContainers(); err != nil {
 		return fmt.Errorf("error process all containers for the first time: %v", err)
 	}
 	d.logger.Infof("Cost %v to process all events", time.Since(startTs))
 
-	collected, err := d.configurer.GetCollectedContainers()
-	if err != nil {
-		return fmt.Errorf("error get collected containers: %v", err)
-	}
-
 	// Remove configuration files if container not exist
-	for ID := range collected {
+	for ID, info := range collected {
 		if _, exist := d.existContainers[ID]; !exist {
-			if err := d.configurer.OnDestroy(&configurer.ContainerDestroyEvent{ID: ID}); err != nil {
-				d.logger.Error("error remove container", ID, "from inputs")
+			if err := os.Remove(info.Path); err != nil {
+				return err
 			}
 		}
 	}
 
+	if err := d.watch(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *discovery) watch() error {
+	ctx := d.ctx
 	filter := filters.NewArgs()
 	filter.Add("type", "container")
 
@@ -188,18 +192,18 @@ func (d *discovery) processAllContainers() error {
 }
 
 func getContainerInfo(cache kube.Cache, containerJSON *types.ContainerJSON) *containerInfo {
-	ret := &containerInfo{
-		ID: containerJSON.ID,
-	}
+	ret := &containerInfo{}
+	ret.ID = containerJSON.ID
+
 	if containerJSON.Config.Labels != nil {
 		ret.PodID = containerJSON.Config.Labels[labelPodID]
-		ret.PodName = containerJSON.Config.Labels[labelPodName]
+		ret.Pod = containerJSON.Config.Labels[labelPodName]
 		ret.Namespace = containerJSON.Config.Labels[labelPodNamespace]
-		ret.ContainerName = containerJSON.Config.Labels[labelContainerName]
+		ret.Name = containerJSON.Config.Labels[labelContainerName]
 	}
-	if ret.PodName != "" && ret.Namespace != "" {
-		ret.ReleaseMeta = cache.GetReleaseMeta(ret.Namespace, ret.PodName)
-		ret.LegacyLogSources = cache.GetLegacyLogSources(ret.Namespace, ret.PodName, ret.ContainerName)
+	if ret.Pod != "" && ret.Namespace != "" {
+		ret.ReleaseMeta = cache.GetReleaseMeta(ret.Namespace, ret.Pod)
+		ret.LegacyLogSources = cache.GetLegacyLogSources(ret.Namespace, ret.Pod, ret.Name)
 	}
 	return ret
 }
@@ -249,7 +253,7 @@ func (d *discovery) newContainer(containerJSON *types.ContainerJSON) error {
 	info := getContainerInfo(d.cache, containerJSON)
 	if len(containerJSON.Config.Labels) > 0 {
 		// Skip POD containers
-		if info.ContainerName == "POD" {
+		if info.Name == "POD" {
 			return nil
 		}
 	}
@@ -266,12 +270,12 @@ func (d *discovery) newContainer(containerJSON *types.ContainerJSON) error {
 		return nil
 	}
 
-	ev := &configurer.ContainerUpdateEvent{
-		ID:         containerJSON.ID,
+	ev := &configurer.ContainerAddEvent{
+		Container:  info.Container,
 		LogConfigs: logConfigs,
 	}
 
-	if err := d.configurer.OnUpdate(ev); err != nil {
+	if err := d.configurer.OnAdd(ev); err != nil {
 		return fmt.Errorf("error update config: %v", err)
 	}
 
@@ -287,8 +291,7 @@ func (d *discovery) delContainer(ID string) error {
 	if info, exist := d.existContainers[ID]; exist {
 		delete(d.existContainers, ID)
 		return d.configurer.OnDestroy(&configurer.ContainerDestroyEvent{
-			ID:    info.ID,
-			PodID: info.PodID,
+			Container: info.Container,
 		})
 	}
 
@@ -296,4 +299,7 @@ func (d *discovery) delContainer(ID string) error {
 }
 
 func (d *discovery) Stop() {
+	d.cancel()
+	d.client.Close()
+	d.configurer.Stop()
 }

@@ -1,24 +1,28 @@
 package configurer
 
+import (
+	"github.com/caicloud/log-pilot/pilot/container"
+)
+
 // Configurer receive events from discovery and manage input configurations
 type Configurer interface {
 	Name() string
 	Start() error
+	Stop()
+	BootstrapCheck() (map[string]*InputConfigFile, error)
+	OnAdd(ev *ContainerAddEvent) error
 	OnDestroy(ev *ContainerDestroyEvent) error
-	OnUpdate(ev *ContainerUpdateEvent) error
-	GetCollectedContainers() (map[string]struct{}, error)
 }
 
-// ContainerUpdateEvent contains data for handling container update
-type ContainerUpdateEvent struct {
+// ContainerAddEvent contains data for handling container update
+type ContainerAddEvent struct {
+	Container  container.Container
 	LogConfigs []*LogConfig
-	ID         string
 }
 
 // ContainerDestroyEvent contains data for handling container delete
 type ContainerDestroyEvent struct {
-	ID    string
-	PodID string
+	Container container.Container
 }
 
 type LogConfig struct {
@@ -40,3 +44,13 @@ const (
 	LogFormatJSON  = "json"
 	LogFormatPlain = "plain"
 )
+
+type InputConfigFile struct {
+	Namespace   string
+	Pod         string
+	Container   string
+	ContainerID string
+	Version     string
+	// Absolute filepath.
+	Path string
+}
