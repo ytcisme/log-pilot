@@ -52,5 +52,5 @@ build-linux:
 container: build-linux
 	docker build -t $(IMAGE) -f $(BUILD_DIR)/log-pilot/Dockerfile .
 
-push: build
+push: container
 	docker push $(IMAGE)
