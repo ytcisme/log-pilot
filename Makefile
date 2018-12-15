@@ -21,10 +21,11 @@ CMD_DIR := ./cmd
 VERSION ?= $(COMMIT)
 
 # Target binaries. You can build multiple binaries for a single project.
-TARGETS := log-pilot
+TARGETS := log-pilot filebeat-keeper
 
 # Docker image name.
-IMAGE := cargo.caicloudprivatetest.com/caicloud/log-pilot:$(VERSION)
+LOG_PILOT_IMAGE := cargo.caicloudprivatetest.com/caicloud/log-pilot:$(VERSION)
+FILEBEAT_IMAGE := cargo.caicloudprivatetest.com/caicloud/filebeat:$(VERSION)
 
 .PHONY: default container push
 
@@ -50,7 +51,9 @@ build-linux:
 	done
 
 container: build-linux
-	docker build -t $(IMAGE) -f $(BUILD_DIR)/log-pilot/Dockerfile .
+	docker build -t $(LOG_PILOT_IMAGE) -f $(BUILD_DIR)/log-pilot/Dockerfile .
+	docker build -t $(FILEBEAT_IMAGE) -f $(BUILD_DIR)/filebeat/Dockerfile .
 
 push: container
-	docker push $(IMAGE)
+	docker push $(LOG_PILOT_IMAGE)
+	docker push $(FILEBEAT_IMAGE)

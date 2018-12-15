@@ -136,6 +136,18 @@
 			"revisionTime": "2018-05-23T07:41:30Z"
 		},
 		{
+			"checksumSHA1": "RQCTFY7Xi/d9L31YTFMUxnC4mZo=",
+			"path": "github.com/caicloud/logging-admin/pkg/util/graceful",
+			"revision": "8b7d25b6eb62786a3088676909befafa9cea9e61",
+			"revisionTime": "2018-12-14T03:34:24Z"
+		},
+		{
+			"checksumSHA1": "Yun92CeIq7n4XVwaZ3WansSItCQ=",
+			"path": "github.com/caicloud/logging-admin/pkg/util/osutil",
+			"revision": "8b7d25b6eb62786a3088676909befafa9cea9e61",
+			"revisionTime": "2018-12-14T03:34:24Z"
+		},
+		{
 			"checksumSHA1": "iDrmPsoBZpfpjBxx3WxoZ6Zsq2w=",
 			"path": "github.com/caicloud/nirvana/log",
 			"revision": "38e6afec68836f3b2368074ff23e00054a5663f3",
@@ -677,6 +689,12 @@
 			"path": "golang.org/x/time/rate",
 			"revision": "d26199324a54f326b16b78cab06923ace9575b86",
 			"revisionTime": "2018-05-23T07:41:30Z"
+		},
+		{
+			"checksumSHA1": "8Vjxiz2qAtkg3zjJgoXiDq7AI64=",
+			"path": "gopkg.in/fsnotify/fsnotify.v1",
+			"revision": "c2828203cd70a50dcccfb2761f8b1f8ceef9a8e9",
+			"revisionTime": "2018-01-10T05:33:47Z"
 		},
 		{
 			"checksumSHA1": "6f8MEU31llHM1sLM/GGH4/Qxu0A=",

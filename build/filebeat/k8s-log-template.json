@@ -1,0 +1,37 @@
+{
+    "template": "logstash-*",
+    "settings": {
+        "index.refresh_interval": "30s",
+        "index.number_of_replicas": 1,
+        "index.number_of_shards": 3
+    },
+    "mappings": {
+        "_default_": {
+            "_all": {
+                "enabled": false
+            },
+            "dynamic_templates": [
+                {
+                    "strings_as_keywords": {
+                        "match_mapping_type": "string",
+                        "unmatch": "log",
+                        "mapping": {
+                            "type": "keyword"
+                        }
+                    }
+                },
+                {
+                    "log": {
+                        "match": "log",
+                        "match_mapping_type": "string",
+                        "mapping": {
+                            "type": "text",
+                            "analyzer": "standard",
+                            "norms": false
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

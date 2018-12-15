@@ -12,7 +12,7 @@
     cri_flags: true
   {{end}}
   fields:
-      cluster_id: ${CLUSTER_ID}
+      cluster: ${CLUSTER_ID}
       {{- range $key, $value := .Tags }}
       {{ $key }}: "{{ $value }}"
       {{- end }}
