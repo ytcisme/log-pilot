@@ -48,7 +48,7 @@ _config:
         subpath: filebeat
       - name: output-config
         path: /config
-    - image: '[[ registry_release ]]/log-pilot:v1.0.0-alpha.0'
+    - image: '[[ registry_release ]]/log-pilot:[[ imageTagFromGitTag ]]'
       imagePullPolicy: Always
       command:
       - /opt/log-pilot/bin/log-pilot
