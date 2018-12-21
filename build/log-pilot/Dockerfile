@@ -1,4 +1,4 @@
-FROM alpine:3.8
+FROM cargo.caicloudprivatetest.com/library/alpine:3.8
 
 # Use aliyun source
 RUN echo "http://mirrors.aliyun.com/alpine/v3.8/main" > /etc/apk/repositories
