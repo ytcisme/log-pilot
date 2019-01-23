@@ -11,6 +11,7 @@ import (
 	"github.com/caicloud/log-pilot/pilot/configurer/filebeat"
 	"github.com/caicloud/log-pilot/pilot/discovery"
 	"github.com/caicloud/log-pilot/pilot/log"
+	"strings"
 )
 
 var (
@@ -20,6 +21,8 @@ var (
 	logPath       = flag.String("path.logs", "", "Logs path")
 	logPrefix     = flag.String("logPrefix", "caicloud", "Log prefix of the env parameters. Multiple prefixes should be separated by \",\"")
 	logLevel      = flag.String("logLevel", "info", "Log level: debug, info, warning, error, critical")
+	wListNS       = flag.String("namespace.whitelist", "", "whitelist of namespaces to watch")
+	bListNS       = flag.String("namespace.blacklist", "", "blacklist of namespaces to ignore")
 	logMaxBytes   = flag.Uint("log.maxSize", 10*1024*1024, "Max size of log file in bytes")
 	logMaxBackups = flag.Uint("log.maxBackups", 7, "Max backups of log files")
 	logToStderr   = flag.Bool("e", false, "Log to stderr")
@@ -34,15 +37,13 @@ func main() {
 	if err != nil {
 		log.Fatal("Invalid path.base:", err)
 	}
-
 	var cfgr configurer.Configurer
-
 	cfgr, err = filebeat.New(baseDir, *template, *filebeatHome)
 	if err != nil {
 		log.Fatalf("Error create configurer: %v", err)
 	}
 
-	d, err := discovery.New(baseDir, *logPrefix, cfgr)
+	d, err := discovery.New(baseDir, *logPrefix, cfgr, parseList(*bListNS), parseList(*wListNS))
 	if err != nil {
 		log.Fatalf("Error create discovery: %v", err)
 	}
@@ -62,4 +63,12 @@ func main() {
 	// Gracefully shutdown
 	time.Sleep(5 * time.Second)
 	os.Exit(0)
+}
+
+func parseList(raw string) []string {
+	splitted := strings.Split(raw, ",")
+	for i := range splitted {
+		splitted[i] = strings.Trim(splitted[i], " \n\t")
+	}
+	return splitted
 }

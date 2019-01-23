@@ -48,10 +48,12 @@ type discovery struct {
 	existContainers map[string]*containerInfo
 	cache           kube.Cache
 	mutex           sync.Mutex
+	bListNS         map[string]struct{} // blacklisted namespaces
+	wListNS         map[string]struct{} // whitelisted namespaces
 }
 
 // New creates a new Discovery
-func New(baseDir, logPrefix string, configurer configurer.Configurer) (Discovery, error) {
+func New(baseDir, logPrefix string, configurer configurer.Configurer, bListNS, wListNS []string) (Discovery, error) {
 	if os.Getenv("DOCKER_API_VERSION") == "" {
 		os.Setenv("DOCKER_API_VERSION", "1.23")
 	}
@@ -89,6 +91,8 @@ func New(baseDir, logPrefix string, configurer configurer.Configurer) (Discovery
 		base:            baseDir,
 		logPrefixes:     prefixes,
 		existContainers: make(map[string]*containerInfo),
+		bListNS:         listToSet(bListNS),
+		wListNS:         listToSet(wListNS),
 	}, nil
 }
 
@@ -253,7 +257,7 @@ func (d *discovery) newContainer(containerJSON *types.ContainerJSON) error {
 	info := getContainerInfo(d.cache, containerJSON)
 	if len(containerJSON.Config.Labels) > 0 {
 		// Skip POD containers
-		if info.Name == "POD" {
+		if info.Name == "POD" || !d.isResponsible(info.Namespace) {
 			return nil
 		}
 	}
@@ -302,4 +306,23 @@ func (d *discovery) Stop() {
 	d.cancel()
 	d.client.Close()
 	d.configurer.Stop()
+}
+
+func (d *discovery) isResponsible(namespace string) bool {
+	if _, inBList := d.bListNS[namespace]; inBList {
+		return false
+	}
+	if len(d.wListNS) > 0 {
+		_, inWList := d.wListNS[namespace]
+		return inWList
+	}
+	return true
+}
+
+func listToSet(list []string) map[string]struct{} {
+	set := make(map[string]struct{})
+	for i := range list {
+		set[list[i]] = struct{}{}
+	}
+	return set
 }
