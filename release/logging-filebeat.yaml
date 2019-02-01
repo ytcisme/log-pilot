@@ -18,10 +18,10 @@ _config:
       resources:
         limits:
           memory: 200Mi
-          cpu: "2"
+          cpu: 200m
         requests:
           memory: 50Mi
-          cpu: 100m
+          cpu: 50m
       image: '[[ registry_release ]]/filebeat:[[ imageTagFromGitTag ]]'
       imagePullPolicy: Always
       command:
@@ -59,11 +59,11 @@ _config:
       - -e
       resources:
         limits:
-          cpu: 20m
-          memory: 20Mi
+          cpu: 100m
+          memory: 200Mi
         requests:
           cpu: 10m
-          memory: 10Mi
+          memory: 20Mi
       mounts:
       - name: kubeletpods
         path: /var/lib/kubelet/pods
