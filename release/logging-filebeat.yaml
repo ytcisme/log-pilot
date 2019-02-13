@@ -18,10 +18,10 @@ _config:
       resources:
         limits:
           memory: 200Mi
-          cpu: 200m
+          cpu: "2"
         requests:
           memory: 50Mi
-          cpu: 50m
+          cpu: 100m
       image: '[[ registry_release ]]/filebeat:[[ imageTagFromGitTag ]]'
       imagePullPolicy: Always
       command:
