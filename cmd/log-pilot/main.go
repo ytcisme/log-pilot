@@ -66,6 +66,9 @@ func main() {
 }
 
 func parseList(raw string) []string {
+	if raw == "" {
+		return nil
+	}
 	splitted := strings.Split(raw, ",")
 	for i := range splitted {
 		splitted[i] = strings.Trim(splitted[i], " \n\t")
